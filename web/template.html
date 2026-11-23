@@ -5,8 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
 <meta name="color-scheme" content="dark light">
-<meta name="description" content="Explore, search and copy paths from JSON in a fast tree view. Runs entirely in your browser.">
+<meta name="description" content="Explore, search and copy paths from JSON in fast tree and graph views. Runs entirely in your browser.">
 <title>JSON Tree Viewer</title>
+<script>try { var t = localStorage.getItem('json-tree:theme:v1'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23f2b544'/%3E%3Cpath d='M10 8v16M10 14h8M10 24h8' stroke='%231b1405' stroke-width='2.5' fill='none'/%3E%3Ccircle cx='21' cy='14' r='3' fill='%231b1405'/%3E%3Ccircle cx='21' cy='24' r='3' fill='%231b1405'/%3E%3C/svg%3E">
 <style>
   :root {
@@ -17,13 +18,28 @@
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
     --sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     --radius: 10px;
+    --g-bg: #1c1d20; --g-card: #2a2d3b; --g-line: #4a5268; --g-edge: #56607a; --g-branch: #39bdf8; --g-array: #f5a524;
+    --g-key: #7cc4f5; --g-str: #f0997a; --g-bool: #8ee6a0; --g-null: #b3bccb; --g-toggle: #1d1e24; --g-toggle-ink: #d7dbe3;
+    color-scheme: dark;
+  }
+  :root[data-theme="light"] {
+    --bg: #f4f2ee; --panel: #fffdf9; --panel-2: #f8f6f1; --line: #e3dfd6; --line-2: #d3cec2;
+    --text: #1d1f23; --muted: #5f656f; --faint: #8b919b; --accent: #b97c0c; --accent-ink: #fff;
+    --ok: #1b8a4f; --err: #cf3333; --guide: #e8e4db; --hover: #f3f0e9; --selected: #fbedcb; --mark: #f2b54477;
+    --t-key: #2559c7; --t-str: #3f7d1f; --t-num: #b8520f; --t-kw: #8a3fc4; --t-null: #6c727c;
+    --g-bg: #f1eee8; --g-card: #fffdf9; --g-line: #c9c3b6; --g-edge: #a59f92; --g-branch: #0b6fb3; --g-array: #b35f00;
+    --g-key: #2559c7; --g-str: #b5461c; --g-bool: #1b7f46; --g-null: #6c727c; --g-toggle: #efebe3; --g-toggle-ink: #3a3e46;
+    color-scheme: light;
   }
   @media (prefers-color-scheme: light) {
-    :root {
+    :root:not([data-theme="dark"]) {
       --bg: #f4f2ee; --panel: #fffdf9; --panel-2: #f8f6f1; --line: #e3dfd6; --line-2: #d3cec2;
       --text: #1d1f23; --muted: #5f656f; --faint: #8b919b; --accent: #b97c0c; --accent-ink: #fff;
       --ok: #1b8a4f; --err: #cf3333; --guide: #e8e4db; --hover: #f3f0e9; --selected: #fbedcb; --mark: #f2b54477;
       --t-key: #2559c7; --t-str: #3f7d1f; --t-num: #b8520f; --t-kw: #8a3fc4; --t-null: #6c727c;
+      --g-bg: #f1eee8; --g-card: #fffdf9; --g-line: #c9c3b6; --g-edge: #a59f92; --g-branch: #0b6fb3; --g-array: #b35f00;
+      --g-key: #2559c7; --g-str: #b5461c; --g-bool: #1b7f46; --g-null: #6c727c; --g-toggle: #efebe3; --g-toggle-ink: #3a3e46;
+      color-scheme: light;
     }
   }
   * { box-sizing: border-box; }
@@ -173,55 +189,193 @@
   }
   body.dropping #drop { display: flex; }
 
+  .i { width: 17px; height: 17px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .i.small { width: 13px; height: 13px; }
+  .btn { gap: 6px; letter-spacing: 0; text-transform: none; }
+  .btn.icon { width: 32px; min-height: 32px; }
+  header .btn { min-height: 32px; }
+  .brand { margin-right: 4px; flex: none; }
+  .seg { display: inline-flex; flex: none; gap: 2px; padding: 2px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel); }
+  .seg button { min-height: 26px; padding: 2px 11px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+  .seg button:hover { color: var(--text); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+  header .search { flex: 1 1 190px; max-width: 340px; margin-left: auto; }
+  header .search input { min-height: 32px; }
+  .quick { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+  .q-sep { width: 1px; height: 20px; margin: 0 2px; background: var(--line-2); }
+  .menu-wrap { position: relative; }
+  .menu {
+    position: absolute; top: calc(100% + 6px); right: 0; z-index: 10; min-width: 190px; padding: 5px;
+    border: 1px solid var(--line-2); border-radius: 9px; background: var(--panel); box-shadow: 0 12px 32px rgb(0 0 0 / .35);
+  }
+  #menu-import { right: auto; left: 0; }
+  .menu button {
+    display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 9px; border: 0; border-radius: 6px;
+    background: transparent; font-size: 13px; text-align: left; cursor: pointer;
+  }
+  .menu button:hover, .menu button:focus-visible { background: var(--hover); outline: 0; }
+  .shortcuts { width: 300px; padding: 11px 12px; }
+  .shortcuts dl { display: grid; grid-template-columns: 1fr auto; gap: 7px 14px; margin: 0; font-size: 12.5px; }
+  .shortcuts dt { color: var(--muted); }
+  .shortcuts dd { margin: 0; text-align: right; white-space: nowrap; }
+  kbd { padding: 1px 5px; border: 1px solid var(--line-2); border-radius: 4px; background: var(--panel-2); font: 11px var(--mono); }
+  .head-actions { display: flex; gap: 4px; }
+  .pane-head .btn { min-height: 28px; padding: 2px 8px; font-size: 12px; }
+  .tree-tools { justify-content: space-between; }
+  .view-info { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding-left: 4px; color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+  #graph-size { color: var(--faint); font: 11.5px var(--mono); letter-spacing: 0; text-transform: none; white-space: nowrap; }
+
+  #graph-wrap { position: relative; flex: 1; min-width: 0; overflow: hidden; background: var(--g-bg); }
+  #graph { position: absolute; inset: 0; display: block; width: 100%; height: 100%; outline: 0; cursor: grab; touch-action: none; }
+  #graph.dragging { cursor: grabbing; }
+  #graph:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+  #graph-note {
+    position: absolute; top: 8px; left: 50%; max-width: calc(100% - 24px); padding: 4px 10px; border: 1px solid var(--line-2); border-radius: 7px;
+    background: var(--panel); color: var(--text); font-size: 12px; transform: translateX(-50%); pointer-events: none;
+  }
+  #graph-hint { position: absolute; bottom: 7px; left: 10px; color: var(--muted); font-size: 11.5px; pointer-events: none; }
+  @media (min-width: 821px) {
+    main.wide { grid-template-columns: minmax(0, 1fr); }
+    main.wide .input-pane { display: none; }
+  }
+
+  dialog {
+    width: min(640px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 0; overflow: hidden;
+    border: 1px solid var(--line-2); border-radius: 12px; background: var(--panel); color: var(--text);
+  }
+  dialog[open] { display: flex; flex-direction: column; }
+  dialog::backdrop { background: rgb(0 0 0 / .5); }
+  .dlg-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .dlg-head h2 { margin: 0; font-size: 15px; }
+  .dlg-foot { display: flex; justify-content: flex-end; gap: 6px; padding: 10px 14px; border-top: 1px solid var(--line); }
+  #schema-text { flex: 1; min-height: 160px; margin: 0; padding: 12px 14px; overflow: auto; font: 12.5px/18px var(--mono); white-space: pre; }
+  #stats-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; margin: 0; padding: 8px 16px 14px; }
+  #stats-list div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  #stats-list dt { color: var(--muted); }
+  #stats-list dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  @media (max-width: 1240px) {
+    .quick .btn .label { display: none; }
+    .quick .btn:not(.icon) { padding: 4px 7px; }
+  }
   @media (max-width: 820px) {
     .brand p { display: none; }
-    .tabs { display: flex; order: 3; }
+    header .search { order: 2; flex-basis: 100%; max-width: none; margin-left: 0; }
+    header .search-nav { order: 3; }
+    .quick { order: 4; }
+    .tabs { display: flex; order: 5; }
+    .seg { margin-left: auto; }
+    .menu, #menu-import { position: fixed; top: auto; right: 16px; left: 16px; width: auto; min-width: 0; margin-top: 6px; }
+    .desktop-only { display: none !important; }
     main { grid-template-columns: minmax(0, 1fr); padding: 8px 16px; }
     main[data-view="input"] .tree-pane, main[data-view="tree"] .input-pane { display: none; }
     #inspector { height: 38%; min-height: 130px; }
+    #graph-hint { display: none; }
+    #stats-list { grid-template-columns: minmax(0, 1fr); }
     footer .privacy { display: none; }
   }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></symbol>
+  <symbol id="i-schema" viewBox="0 0 24 24"><path d="M9 4C7 4 6 5 6 7v2c0 1.5-1 3-2 3 1 0 2 1.5 2 3v2c0 2 1 3 3 3M15 4c2 0 3 1 3 3v2c0 1.5 1 3 2 3-1 0-2 1.5-2 3v2c0 2-1 3-3 3"/></symbol>
+  <symbol id="i-stats" viewBox="0 0 24 24"><path d="M5 20v-7M12 20V5M19 20v-10"/></symbol>
+  <symbol id="i-zoom-in" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5 21 21M11 8v6M8 11h6"/></symbol>
+  <symbol id="i-zoom-out" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5 21 21M8 11h6"/></symbol>
+  <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></symbol>
+  <symbol id="i-keys" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M18 10h.01M7 14h10"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5ZM14 3v5h5"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M6 6l12 12M18 6 6 18"/></symbol>
+</defs></svg>
+
 <header>
-  <div class="brand">
-    <h1>json<b>/</b>tree</h1>
-    <p>Explore JSON as a fast, searchable tree</p>
+  <div class="brand"><h1>json<b>/</b>tree</h1></div>
+  <div class="seg" role="group" aria-label="View mode">
+    <button id="mode-tree" type="button" aria-pressed="true">Tree</button>
+    <button id="mode-graph" type="button" aria-pressed="false">Graph</button>
   </div>
-  <div class="actions">
-    <button class="btn" id="btn-sample" type="button">Sample</button>
-    <button class="btn" id="btn-open" type="button">Open file</button>
+
+  <div class="search">
+    <input id="search" type="search" placeholder="Search node  ( / )" aria-label="Search keys and values" autocomplete="off" spellcheck="false">
+    <span id="match-count" aria-live="polite"></span>
+  </div>
+  <div class="tool-group search-nav">
+    <button class="btn icon" id="btn-prev" type="button" aria-label="Previous match" title="Previous match (Shift+Enter)">↑</button>
+    <button class="btn icon" id="btn-next" type="button" aria-label="Next match" title="Next match (Enter)">↓</button>
+    <button class="btn icon" id="btn-case" type="button" aria-pressed="false" aria-label="Match case" title="Match case">Aa</button>
+  </div>
+
+  <div class="quick" role="toolbar" aria-label="Quick actions">
+    <div class="menu-wrap">
+      <button class="btn" id="btn-import" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="menu-import" aria-label="Import" title="Import">
+        <svg class="i"><use href="#i-upload"/></svg><span class="label">Import</span>
+      </button>
+      <div class="menu" id="menu-import" role="menu" hidden>
+        <button id="btn-open" role="menuitem" type="button"><svg class="i"><use href="#i-file"/></svg>Open JSON file</button>
+        <button id="btn-sample" role="menuitem" type="button"><svg class="i"><use href="#i-spark"/></svg>Load sample</button>
+      </div>
+    </div>
     <input id="file" type="file" accept=".json,.geojson,.txt,application/json" hidden>
-    <button class="btn" id="btn-format" type="button">Format</button>
-    <button class="btn" id="btn-minify" type="button">Minify</button>
-    <button class="btn" id="btn-clear" type="button">Clear</button>
-    <a class="btn" href="https://github.com/yasiraza03/json-tree" target="_blank" rel="noopener noreferrer">GitHub</a>
+    <button class="btn" id="btn-schema" type="button" aria-label="Schema" title="Generate a JSON Schema"><svg class="i"><use href="#i-schema"/></svg><span class="label">Schema</span></button>
+    <button class="btn" id="btn-stats" type="button" aria-label="Stats" title="Document stats"><svg class="i"><use href="#i-stats"/></svg><span class="label">Stats</span></button>
+    <span class="q-sep desktop-only"></span>
+    <button class="btn icon" id="btn-download" type="button" aria-label="Download" title="Download"><svg class="i"><use href="#i-download"/></svg></button>
+    <button class="btn icon" id="btn-zoom-in" type="button" aria-label="Zoom in" title="Zoom in (+)"><svg class="i"><use href="#i-zoom-in"/></svg></button>
+    <button class="btn icon" id="btn-zoom-out" type="button" aria-label="Zoom out" title="Zoom out (-)"><svg class="i"><use href="#i-zoom-out"/></svg></button>
+    <button class="btn icon" id="btn-fit" type="button" aria-label="Fit to screen" title="Fit to screen (0)"><svg class="i"><use href="#i-fit"/></svg></button>
+    <button class="btn icon desktop-only" id="btn-panel" type="button" aria-pressed="false" aria-label="Hide JSON panel" title="Hide JSON panel"><svg class="i"><use href="#i-panel"/></svg></button>
+    <button class="btn icon" id="btn-theme" type="button" aria-label="Switch theme" title="Switch theme"><svg class="i"><use id="theme-icon" href="#i-sun"/></svg></button>
+    <div class="menu-wrap">
+      <button class="btn" id="btn-shortcuts" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-shortcuts" aria-label="Shortcuts" title="Keyboard shortcuts">
+        <svg class="i"><use href="#i-keys"/></svg><span class="label">Shortcuts</span><svg class="i small"><use href="#i-chevron"/></svg>
+      </button>
+      <div class="menu shortcuts" id="menu-shortcuts" hidden>
+        <dl>
+          <dt>Search</dt><dd><kbd>/</kbd></dd>
+          <dt>Next / previous match</dt><dd><kbd>Enter</kbd> <kbd>Shift+Enter</kbd></dd>
+          <dt>Switch tree / graph</dt><dd><kbd>G</kbd></dd>
+          <dt>Zoom in / out</dt><dd><kbd>+</kbd> <kbd>-</kbd></dd>
+          <dt>Fit graph</dt><dd><kbd>0</kbd></dd>
+          <dt>Move selection</dt><dd><kbd>↑</kbd> <kbd>↓</kbd></dd>
+          <dt>Collapse / expand</dt><dd><kbd>←</kbd> <kbd>→</kbd></dd>
+          <dt>Toggle node</dt><dd><kbd>Enter</kbd></dd>
+          <dt>Zoom with mouse</dt><dd><kbd>Ctrl+scroll</kbd></dd>
+        </dl>
+      </div>
+    </div>
+    <a class="btn icon" href="https://github.com/yasiraza03/json-tree" target="_blank" rel="noopener noreferrer" aria-label="Source code on GitHub" title="Source code on GitHub"><svg class="i"><use href="#i-code"/></svg></a>
   </div>
-  <div class="tabs" role="tablist" aria-label="View">
+
+  <div class="tabs" role="tablist" aria-label="Panel">
     <button id="tab-input" role="tab" type="button" aria-selected="false">Input</button>
-    <button id="tab-tree" role="tab" type="button" aria-selected="true">Tree</button>
+    <button id="tab-tree" role="tab" type="button" aria-selected="true">View</button>
   </div>
 </header>
 
 <main id="main" data-view="tree">
   <section class="pane input-pane" aria-label="JSON input">
-    <div class="pane-head"><span>JSON</span></div>
+    <div class="pane-head">
+      <span>JSON</span>
+      <div class="head-actions">
+        <button class="btn" id="btn-format" type="button">Format</button>
+        <button class="btn" id="btn-minify" type="button">Minify</button>
+        <button class="btn" id="btn-clear" type="button">Clear</button>
+      </div>
+    </div>
     <textarea id="input" wrap="off" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="JSON input" placeholder="Paste JSON here, or drop a file anywhere"></textarea>
   </section>
 
   <section class="pane tree-pane" aria-label="JSON tree">
     <div class="tree-tools">
-      <div class="search">
-        <input id="search" type="search" placeholder="Search keys and values  ( / )" aria-label="Search keys and values" autocomplete="off" spellcheck="false">
-        <span id="match-count" aria-live="polite"></span>
-      </div>
-      <div class="tool-group">
-        <button class="btn icon" id="btn-prev" type="button" aria-label="Previous match" title="Previous match (Shift+Enter)">↑</button>
-        <button class="btn icon" id="btn-next" type="button" aria-label="Next match" title="Next match (Enter)">↓</button>
-        <button class="btn icon" id="btn-case" type="button" aria-pressed="false" aria-label="Match case" title="Match case">Aa</button>
-      </div>
+      <div class="view-info"><span id="view-title">Tree</span><span id="graph-size" hidden></span></div>
       <div class="tool-group">
         <button class="btn" id="btn-expand" type="button">Expand all</button>
         <button class="btn" id="btn-collapse" type="button">Collapse</button>
@@ -235,6 +389,11 @@
 
     <div class="tree-body">
       <div id="tree" role="tree" tabindex="0" aria-label="JSON document"><div id="spacer" role="presentation"></div></div>
+      <div id="graph-wrap" hidden>
+        <canvas id="graph" tabindex="0" role="application" aria-label="JSON graph. Use the arrow keys to move between nodes." data-cards="0"></canvas>
+        <div id="graph-note" role="status" hidden></div>
+        <div id="graph-hint">Drag to pan · Ctrl+scroll to zoom</div>
+      </div>
       <div class="notice" id="empty" hidden>
         <h2>Nothing to show yet</h2>
         <p>Paste JSON, drop a file anywhere, or load the sample.</p>
@@ -271,6 +430,19 @@
 </footer>
 <div id="toast" role="status"></div>
 <div id="drop">Drop a JSON file to open it</div>
+
+<dialog id="dlg-schema" aria-labelledby="schema-title">
+  <div class="dlg-head"><h2 id="schema-title">Generated JSON Schema</h2><button class="btn icon" type="button" data-close aria-label="Close">✕</button></div>
+  <pre id="schema-text" tabindex="0"></pre>
+  <div class="dlg-foot">
+    <button class="btn" id="btn-schema-copy" type="button">Copy</button>
+    <button class="btn primary" id="btn-schema-download" type="button">Download</button>
+  </div>
+</dialog>
+<dialog id="dlg-stats" aria-labelledby="stats-title">
+  <div class="dlg-head"><h2 id="stats-title">Document stats</h2><button class="btn icon" type="button" data-close aria-label="Close">✕</button></div>
+  <dl id="stats-list"></dl>
+</dialog>
 
 <script>/*__JSONTREE__*/</script>
 <script>
@@ -325,6 +497,7 @@
     inspector: $('#inspector'), insType: $('#ins-type'), insPath: $('#ins-path'), insValue: $('#ins-value'),
     pathFormat: $('#path-format'), status: $('#status'), stState: $('#st-state'), stInfo: $('#st-info'), stDups: $('#st-dups'),
     toast: $('#toast'), file: $('#file'),
+    graph: $('#graph'), graphWrap: $('#graph-wrap'), graphNote: $('#graph-note'), graphSize: $('#graph-size'), viewTitle: $('#view-title'),
   };
 
   let doc = null;
@@ -345,6 +518,19 @@
   let painting = false;
   const pool = [];
 
+  const MODE_KEY = 'json-tree:mode:v1';
+  const THEME_KEY = 'json-tree:theme:v1';
+  const MIN_ZOOM = 0.05;
+  const MAX_ZOOM = 3;
+  let mode = 'tree';
+  let g = null;                 // Current graph layout.
+  let gDirty = true;
+  let gNeedsFit = true;
+  let gFrame = 0;
+  let gClosed = new Set();      // Containers the user collapsed in the graph.
+  let gPages = new Map();       // First shown child of long containers.
+  const cam = { x: 0, y: 0, k: 1 };
+
   const storage = {
     get() { try { return localStorage.getItem(STORE_KEY); } catch (_) { return null; } },
     set(text) {
@@ -360,12 +546,14 @@
 
   function toast(message) {
     clearTimeout(toastTimer);
+    (document.querySelector('dialog[open]') || document.body).appendChild(el.toast);
     el.toast.textContent = message;
     el.toast.classList.add('show');
     toastTimer = setTimeout(() => el.toast.classList.remove('show'), 1600);
   }
 
   function setView(view) {
+    if (view === 'input' && el.main.classList.contains('wide')) setPanelHidden(false);
     el.main.dataset.view = view;
     $('#tab-input').setAttribute('aria-selected', String(view === 'input'));
     $('#tab-tree').setAttribute('aria-selected', String(view === 'tree'));
@@ -480,6 +668,7 @@
 
   function paint() {
     painting = false;
+    if (mode === 'graph') { scheduleGraph(); return; }
     const m = metrics();
     el.spacer.style.height = `${m.dom}px`;
     const vTop = virtualTop(m);
@@ -506,18 +695,20 @@
     else el.tree.removeAttribute('aria-activedescendant');
   }
 
-  function rowIndex(id) {
+  function indexIn(list, id) {
     let lo = 0;
-    let hi = rows.length - 1;
+    let hi = list.length - 1;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      const v = rows[mid].id;
+      const v = list[mid].id;
       if (v === id) return mid;
       if (v < id) lo = mid + 1;
       else hi = mid - 1;
     }
     return -1;
   }
+
+  const rowIndex = (id) => indexIn(rows, id);
 
   function scrollToRow(pos, center) {
     if (pos < 0) return;
@@ -538,7 +729,7 @@
 
   function refreshRows() {
     rows = doc ? J.visibleNodes(doc, expanded) : [];
-    if (doc && selected !== null) {
+    if (mode === 'tree' && doc && selected !== null) {
       let target = doc.nodes[selected];
       for (let p = target.parent; p; p = p.parent) if (!expanded.has(p.id)) target = p;
       if (target.id !== selected) { selected = target.id; inspect(); }
@@ -555,7 +746,10 @@
 
   function select(id, options = {}) {
     selected = id;
-    if (options.scroll !== false) scrollToRow(rowIndex(id), options.center);
+    if (options.scroll !== false) {
+      if (mode === 'graph') graphReveal(id);
+      else scrollToRow(rowIndex(id), options.center);
+    }
     paint();
     inspect();
   }
@@ -588,7 +782,12 @@
     if (!doc || expanded.size > MEMO_LIMIT || doc.stats.maxDepth > 200) return null;
     const open = new Set();
     for (const id of expanded) open.add(J.pointer(doc.nodes[id]));
-    return { open, selected: selected !== null ? J.pointer(doc.nodes[selected]) : null };
+    return {
+      open,
+      selected: selected !== null ? J.pointer(doc.nodes[selected]) : null,
+      closed: gClosed.size <= MEMO_LIMIT ? [...gClosed].map((id) => J.pointer(doc.nodes[id])) : [],
+      pages: [...gPages].map(([id, start]) => [J.pointer(doc.nodes[id]), start]),
+    };
   }
 
   function restore(memo) {
@@ -604,6 +803,17 @@
       }
     }
     if (selected === null) selected = doc.root.id;
+    gClosed = new Set();
+    gPages = new Map();
+    for (const ptr of memo.closed) {
+      const node = J.resolvePointer(doc, ptr);
+      if (node) gClosed.add(node.id);
+    }
+    for (const [ptr, start] of memo.pages) {
+      const node = J.resolvePointer(doc, ptr);
+      if (node) gPages.set(node.id, start);
+    }
+    gDirty = true;
   }
 
   /* ---------- loading ---------- */
@@ -614,7 +824,8 @@
   }
 
   function setToolsEnabled(on) {
-    for (const id of ['btn-format', 'btn-minify', 'btn-expand', 'btn-collapse']) $(`#${id}`).disabled = !on;
+    for (const id of ['btn-format', 'btn-minify', 'btn-expand', 'btn-collapse', 'btn-schema', 'btn-stats', 'btn-download']) $(`#${id}`).disabled = !on;
+    updateZoomButtons();
     el.level.disabled = !on;
     el.search.disabled = !on;
     $('#btn-prev').disabled = !on || !matches.length;
@@ -633,6 +844,8 @@
     rows = [];
     expanded = new Set();
     selected = null;
+    g = null;
+    gDirty = true;
     resetSearchState();
     el.tree.scrollTop = 0;
     paint();
@@ -688,7 +901,11 @@
       expanded = J.expandToDepth(doc, doc.stats.nodes <= 400 ? 3 : 2);
       selected = doc.root.id;
       el.tree.scrollTop = 0;
+      gClosed = new Set();
+      gPages = new Map();
+      gNeedsFit = true;
     }
+    gDirty = true;
     rows = J.visibleNodes(doc, expanded);
     runSearch(false);
     paint();
@@ -770,6 +987,615 @@
     reveal(matches[matchAt]);
   }
 
+  /* ---------- graph view ---------- */
+
+  const G = J.GRAPH;
+  const graphCtx = el.graph.getContext('2d');
+  const measureCtx = document.createElement('canvas').getContext('2d');
+  const GRAPH_FONT = `12.5px ${getComputedStyle(document.documentElement).getPropertyValue('--mono').trim()}`;
+  measureCtx.font = GRAPH_FONT;
+  const CHAR_W = measureCtx.measureText('0').width;
+  const tokens = {};
+
+  function measure(s) {
+    for (let i = 0; i < s.length; i++) {
+      if (s.charCodeAt(i) > 126) return measureCtx.measureText(s).width;
+    }
+    return s.length * CHAR_W;
+  }
+
+  function readTokens() {
+    const css = getComputedStyle(document.documentElement);
+    for (const name of ['g-bg', 'g-card', 'g-line', 'g-edge', 'g-branch', 'g-array', 'g-key', 'g-str', 'g-bool', 'g-null', 'g-toggle', 'g-toggle-ink', 'accent', 'selected', 'mark', 'muted', 'err', 'text']) {
+      tokens[name] = css.getPropertyValue(`--${name}`).trim();
+    }
+  }
+
+  function scheduleGraph() {
+    if (mode !== 'graph' || gFrame) return;
+    gFrame = requestAnimationFrame(drawGraph);
+  }
+
+  function buildCurrentGraph() {
+    gDirty = false;
+    if (!doc) {
+      g = null;
+      el.graph.dataset.cards = '0';
+      el.graphNote.hidden = true;
+      return;
+    }
+    const focus = selected !== null ? doc.nodes[selected] : null;
+    g = J.buildGraph(doc, { closed: gClosed, pages: gPages, focus, measure });
+    if (selected !== null && !g.where.has(selected)) {
+      let x = doc.nodes[selected];
+      while (x.parent && !g.where.has(x.id)) x = x.parent;
+      selected = x.id;
+      inspect();
+    }
+    el.graph.dataset.cards = String(g.cards.length);
+    el.graphNote.hidden = !g.truncated;
+    el.graphNote.textContent = g.truncated ? `Showing ${g.cards.length.toLocaleString('en-US')} cards. Collapse branches or search to see the rest.` : '';
+  }
+
+  function fitGraph() {
+    if (!g) return;
+    const w = el.graphWrap.clientWidth;
+    const h = el.graphWrap.clientHeight;
+    if (!w || !h) return;
+    const k = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (w - 48) / g.width, (h - 48) / g.height, 1));
+    cam.k = k;
+    cam.x = (w - g.width * k) / 2;
+    cam.y = (h - g.height * k) / 2;
+    gNeedsFit = false;
+    scheduleGraph();
+  }
+
+  function zoomAt(factor, sx, sy) {
+    const k = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, cam.k * factor));
+    cam.x = sx - ((sx - cam.x) * k) / cam.k;
+    cam.y = sy - ((sy - cam.y) * k) / cam.k;
+    cam.k = k;
+    scheduleGraph();
+  }
+
+  const zoomCenter = (factor) => zoomAt(factor, el.graphWrap.clientWidth / 2, el.graphWrap.clientHeight / 2);
+
+  function targetRect(at) {
+    const c = at.card;
+    if (at.row < 0) return { x: c.x, y: c.y, w: c.w, h: c.h };
+    return { x: c.x, y: c.y + G.padY + at.row * G.rowH, w: c.w, h: G.rowH };
+  }
+
+  function centerOn(id) {
+    if (!g) return;
+    const at = g.where.get(id);
+    const w = el.graphWrap.clientWidth;
+    const h = el.graphWrap.clientHeight;
+    if (!at || !w || !h) return;
+    const r = targetRect(at);
+    const left = cam.x + r.x * cam.k;
+    const top = cam.y + r.y * cam.k;
+    if (left >= 8 && top >= 8 && left + r.w * cam.k <= w - 8 && top + r.h * cam.k <= h - 8) return;
+    cam.x = w / 2 - (r.x + r.w / 2) * cam.k;
+    cam.y = h / 2 - (r.y + r.h / 2) * cam.k;
+    gNeedsFit = false;
+  }
+
+  function graphReveal(id) {
+    const node = doc.nodes[id];
+    for (let p = node.parent; p; p = p.parent) {
+      if (gClosed.delete(p.id)) gDirty = true;
+    }
+    for (let x = node; x.parent; x = x.parent) {
+      const size = x.parent.type === 'array' ? G.itemPage : G.rowPage;
+      const start = Math.floor(x.index / size) * size;
+      if ((gPages.get(x.parent.id) || 0) !== start) {
+        gPages.set(x.parent.id, start);
+        gDirty = true;
+      }
+    }
+    if (gDirty || !g || !g.where.has(id)) buildCurrentGraph();
+    if (gNeedsFit) fitGraph();
+    centerOn(id);
+    scheduleGraph();
+  }
+
+  function graphSetOpen(node, open) {
+    if (!g) return;
+    const before = g.where.get(node.id);
+    const sx = before ? cam.x + before.card.x * cam.k : 0;
+    const sy = before ? cam.y + before.card.y * cam.k : 0;
+    if (open) gClosed.delete(node.id);
+    else gClosed.add(node.id);
+    buildCurrentGraph();
+    const after = g.where.get(node.id);
+    if (before && after) {
+      cam.x = sx - after.card.x * cam.k;
+      cam.y = sy - after.card.y * cam.k;
+    }
+    scheduleGraph();
+  }
+
+  function isGraphBranch(n) {
+    const at = g && g.where.get(n.id);
+    return !!(at && at.card.kind === 'branch' && at.card.node === n);
+  }
+
+  function roundedPath(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, w, h, r);
+    else ctx.rect(x, y, w, h);
+  }
+
+  function valueColor(row) {
+    if (row.type === 'boolean') return tokens['g-bool'];
+    if (row.type === 'null') return tokens['g-null'];
+    return tokens['g-str'];
+  }
+
+  function drawGraphCard(ctx, c, showText, plain) {
+    const isSel = !plain && c.kind !== 'pager' && c.kind !== 'value' && c.node.id === selected && g.where.get(selected).row < 0;
+    const isHit = !plain && c.kind === 'branch' && matchSet.has(c.node.id);
+    roundedPath(ctx, c.x, c.y, c.w, c.h, 4);
+    ctx.fillStyle = tokens['g-card'];
+    ctx.fill();
+    if (isHit) { ctx.fillStyle = tokens.mark; ctx.fill(); }
+    ctx.lineWidth = isSel ? 2 : 1.2;
+    ctx.strokeStyle = isSel ? tokens.accent : tokens['g-line'];
+    ctx.stroke();
+    if (!showText) return;
+
+    if (c.kind === 'branch') {
+      const midY = c.y + c.h / 2 + 0.5;
+      const boxX = c.x + c.w - G.toggle - 4;
+      ctx.fillStyle = c.node.type === 'array' ? tokens['g-array'] : tokens['g-branch'];
+      ctx.fillText(c.label, c.x + G.padX, midY);
+      ctx.fillStyle = tokens.text;
+      ctx.fillText(c.count, boxX - 8 - measure(c.count), midY);
+      roundedPath(ctx, boxX, c.y + 4, G.toggle, G.toggle, 6);
+      ctx.fillStyle = tokens['g-toggle'];
+      ctx.fill();
+      const open = !gClosed.has(c.node.id);
+      const cx = boxX + G.toggle / 2;
+      const cy = c.y + c.h / 2;
+      const dir = open ? -1 : 1;
+      ctx.beginPath();
+      ctx.moveTo(cx - 2.5 * dir, cy - 5);
+      ctx.lineTo(cx + 2.5 * dir, cy);
+      ctx.lineTo(cx - 2.5 * dir, cy + 5);
+      ctx.lineWidth = 1.7;
+      ctx.strokeStyle = tokens['g-toggle-ink'];
+      ctx.stroke();
+      return;
+    }
+
+    if (c.kind === 'pager') {
+      ctx.fillStyle = tokens.accent;
+      ctx.fillText(c.rows[0].text, c.x + G.padX, c.y + c.h / 2 + 0.5);
+      return;
+    }
+
+    c.rows.forEach((row, i) => {
+      const y = c.y + G.padY + i * G.rowH;
+      const midY = y + G.rowH / 2 + 0.5;
+      if (row.pager) {
+        ctx.fillStyle = tokens.accent;
+        ctx.fillText(row.text, c.x + G.padX, midY);
+        return;
+      }
+      if (!plain && (row.node.id === selected || matchSet.has(row.node.id))) {
+        ctx.fillStyle = row.node.id === selected ? tokens.selected : tokens.mark;
+        ctx.fillRect(c.x + 3, y, c.w - 6, G.rowH);
+      }
+      let x = c.x + G.padX;
+      if (row.key !== null) {
+        const key = `${row.key}: `;
+        ctx.fillStyle = row.overridden ? tokens.err : tokens['g-key'];
+        ctx.fillText(key, x, midY);
+        x += measure(key);
+      }
+      ctx.fillStyle = valueColor(row);
+      ctx.fillText(row.text, x, midY);
+    });
+  }
+
+  function renderGraph(ctx, x0, y0, x1, y1, k, plain) {
+    const heads = [];
+    ctx.beginPath();
+    for (const c of g.cards) {
+      if (!c.parent) continue;
+      const ex = c.x;
+      const ey = c.y + c.h / 2;
+      if (Math.max(c.edgeX, ex) < x0 || Math.min(c.edgeX, ex) > x1 || Math.max(c.edgeY, ey) < y0 || Math.min(c.edgeY, ey) > y1) continue;
+      const mid = (c.edgeX + ex) / 2;
+      ctx.moveTo(c.edgeX, c.edgeY);
+      ctx.bezierCurveTo(mid, c.edgeY, mid, ey, ex - 7, ey);
+      heads.push(ex, ey);
+    }
+    ctx.lineWidth = 1.3;
+    ctx.strokeStyle = tokens['g-edge'];
+    ctx.stroke();
+    ctx.beginPath();
+    for (let i = 0; i < heads.length; i += 2) {
+      ctx.moveTo(heads[i], heads[i + 1]);
+      ctx.lineTo(heads[i] - 9, heads[i + 1] - 5);
+      ctx.lineTo(heads[i] - 9, heads[i + 1] + 5);
+      ctx.closePath();
+    }
+    ctx.fillStyle = tokens['g-edge'];
+    ctx.fill();
+
+    ctx.font = GRAPH_FONT;
+    ctx.textBaseline = 'middle';
+    const showText = k >= 0.28;
+    for (const c of J.graphCardsInView(g, x0, y0, x1, y1)) drawGraphCard(ctx, c, showText, plain);
+  }
+
+  function drawGraph() {
+    gFrame = 0;
+    if (mode !== 'graph') return;
+    const w = el.graphWrap.clientWidth;
+    const h = el.graphWrap.clientHeight;
+    if (!w || !h) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const pw = Math.round(w * dpr);
+    const ph = Math.round(h * dpr);
+    if (el.graph.width !== pw || el.graph.height !== ph) {
+      el.graph.width = pw;
+      el.graph.height = ph;
+    }
+    if (gDirty) buildCurrentGraph();
+    if (gNeedsFit && g) fitGraph();
+
+    const ctx = graphCtx;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = tokens['g-bg'];
+    ctx.fillRect(0, 0, w, h);
+    el.graphSize.textContent = g ? `${Math.round(g.width)} × ${Math.round(g.height)} · ${Math.round(cam.k * 100)}%` : '';
+    if (!g) return;
+    ctx.setTransform(dpr * cam.k, 0, 0, dpr * cam.k, dpr * cam.x, dpr * cam.y);
+    renderGraph(ctx, -cam.x / cam.k, -cam.y / cam.k, (w - cam.x) / cam.k, (h - cam.y) / cam.k, cam.k, false);
+  }
+
+  function updateZoomButtons() {
+    const on = !!doc && mode === 'graph';
+    for (const id of ['btn-zoom-in', 'btn-zoom-out', 'btn-fit']) $(`#${id}`).disabled = !on;
+    $('#btn-download').title = mode === 'graph' ? 'Download graph as PNG' : 'Download formatted JSON';
+    $('#btn-download').setAttribute('aria-label', $('#btn-download').title);
+  }
+
+  function setMode(next) {
+    mode = next;
+    setView('tree');
+    el.tree.hidden = next !== 'tree';
+    el.graphWrap.hidden = next !== 'graph';
+    el.graphSize.hidden = next !== 'graph';
+    el.viewTitle.textContent = next === 'graph' ? 'Graph' : 'Tree';
+    $('#mode-tree').setAttribute('aria-pressed', String(next === 'tree'));
+    $('#mode-graph').setAttribute('aria-pressed', String(next === 'graph'));
+    try { localStorage.setItem(MODE_KEY, next); } catch (_) { /* Optional convenience. */ }
+    updateZoomButtons();
+    if (next === 'graph') {
+      gDirty = true;
+      if (doc && selected !== null) graphReveal(selected);
+      scheduleGraph();
+    } else if (doc && selected !== null) {
+      reveal(selected);
+    } else {
+      paint();
+    }
+  }
+
+  const focusView = () => (mode === 'graph' ? el.graph : el.tree).focus({ preventScroll: true });
+
+  function setGraphLevel(level) {
+    gClosed = new Set();
+    for (const node of doc.nodes) {
+      if (node.children && node.children.length && node.depth >= level) gClosed.add(node.id);
+    }
+    gDirty = true;
+    gNeedsFit = true;
+    scheduleGraph();
+  }
+
+  const pointers = new Map();
+  let dragDistance = 0;
+  let pinchDistance = 0;
+  let pinchMid = null;
+
+  function localPoint(e) {
+    const r = el.graph.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
+  const toWorld = (p) => ({ x: (p.x - cam.x) / cam.k, y: (p.y - cam.y) / cam.k });
+
+  function pinchInfo() {
+    const [a, b] = [...pointers.values()];
+    return { dist: Math.hypot(a.x - b.x, a.y - b.y), mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
+  }
+
+  function graphClick(p) {
+    if (!g) return;
+    const w = toWorld(p);
+    const hit = J.hitGraph(g, w.x, w.y);
+    if (!hit) return;
+    if (hit.pager) {
+      gPages.set(hit.pager.target.id, hit.pager.start);
+      gDirty = true;
+      scheduleGraph();
+      return;
+    }
+    if (hit.toggle) graphSetOpen(hit.node, gClosed.has(hit.node.id));
+    select(hit.node.id, { scroll: false });
+  }
+
+  el.graph.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    el.graph.focus({ preventScroll: true });
+    el.graph.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, localPoint(e));
+    if (pointers.size === 1) dragDistance = 0;
+    if (pointers.size === 2) {
+      dragDistance = Infinity;
+      const info = pinchInfo();
+      pinchDistance = info.dist;
+      pinchMid = info.mid;
+    }
+    el.graph.classList.add('dragging');
+  });
+
+  el.graph.addEventListener('pointermove', (e) => {
+    const p = localPoint(e);
+    if (!pointers.has(e.pointerId)) {
+      if (e.pointerType === 'mouse' && g) {
+        const w = toWorld(p);
+        const hit = J.hitGraph(g, w.x, w.y);
+        el.graph.style.cursor = hit && (hit.toggle || hit.pager) ? 'pointer' : hit ? 'default' : '';
+      }
+      return;
+    }
+    const last = pointers.get(e.pointerId);
+    pointers.set(e.pointerId, p);
+    if (pointers.size === 1) {
+      dragDistance += Math.hypot(p.x - last.x, p.y - last.y);
+      if (dragDistance > 3) {
+        el.graph.style.cursor = '';
+        cam.x += p.x - last.x;
+        cam.y += p.y - last.y;
+        gNeedsFit = false;
+        scheduleGraph();
+      }
+    } else if (pointers.size === 2) {
+      const info = pinchInfo();
+      if (pinchDistance > 0) zoomAt(info.dist / pinchDistance, info.mid.x, info.mid.y);
+      cam.x += info.mid.x - pinchMid.x;
+      cam.y += info.mid.y - pinchMid.y;
+      pinchDistance = info.dist;
+      pinchMid = info.mid;
+      gNeedsFit = false;
+      scheduleGraph();
+    }
+  });
+
+  function endPointer(e) {
+    if (!pointers.has(e.pointerId)) return;
+    const p = localPoint(e);
+    pointers.delete(e.pointerId);
+    if (!pointers.size) {
+      el.graph.classList.remove('dragging');
+      if (e.type === 'pointerup' && dragDistance <= 3) graphClick(p);
+    }
+  }
+  el.graph.addEventListener('pointerup', endPointer);
+  el.graph.addEventListener('pointercancel', endPointer);
+
+  el.graph.addEventListener('dblclick', (e) => {
+    if (!g) return;
+    const w = toWorld(localPoint(e));
+    const hit = J.hitGraph(g, w.x, w.y);
+    if (hit && hit.node && !hit.toggle && isGraphBranch(hit.node)) graphSetOpen(hit.node, gClosed.has(hit.node.id));
+  });
+
+  el.graph.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const unit = e.deltaMode === 1 ? 16 : 1;
+    if (e.ctrlKey || e.metaKey) {
+      const p = localPoint(e);
+      zoomAt(Math.exp(-e.deltaY * unit * 0.01), p.x, p.y);
+    } else {
+      cam.x -= (e.shiftKey ? e.deltaY : e.deltaX) * unit;
+      cam.y -= (e.shiftKey ? 0 : e.deltaY) * unit;
+      scheduleGraph();
+    }
+    gNeedsFit = false;
+  }, { passive: false });
+
+  // Read-only hooks for the browser tests, since canvas content has no DOM to query.
+  window.__jsonTreeGraph = {
+    camera: () => ({ ...cam }),
+    point(ptr, part) {
+      if (gDirty) buildCurrentGraph();
+      const node = J.resolvePointer(doc, ptr);
+      let target;
+      if (part === 'pager') {
+        const pagers = g.cards.filter((c) => c.kind === 'pager' && c.node === node);
+        const c = pagers[pagers.length - 1];
+        cam.x = el.graphWrap.clientWidth / 2 - (c.x + c.w / 2) * cam.k;
+        cam.y = el.graphWrap.clientHeight / 2 - (c.y + c.h / 2) * cam.k;
+        target = { x: c.x + c.w / 2, y: c.y + c.h / 2 };
+      } else {
+        const at = g.where.get(node.id);
+        centerOn(node.id);
+        const r = targetRect(at);
+        target = part === 'toggle'
+          ? { x: r.x + r.w - 4 - G.toggle / 2, y: r.y + r.h / 2 }
+          : { x: r.x + 6, y: r.y + r.h / 2 };
+      }
+      drawGraph();
+      const box = el.graph.getBoundingClientRect();
+      return { x: box.left + cam.x + target.x * cam.k, y: box.top + cam.y + target.y * cam.k };
+    },
+  };
+
+  /* ---------- quick actions ---------- */
+
+  function downloadBlob(blob, name) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+
+  function downloadGraph() {
+    if (gDirty) buildCurrentGraph();
+    if (!g) return;
+    const pad = 28;
+    const w = g.width + pad * 2;
+    const h = g.height + pad * 2;
+    const scale = Math.min(2, 8000 / w, 8000 / h, Math.sqrt(40e6 / (w * h)));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(w * scale);
+    canvas.height = Math.ceil(h * scale);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = tokens['g-bg'];
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(scale, 0, 0, scale, pad * scale, pad * scale);
+    renderGraph(ctx, -pad, -pad, g.width + pad, g.height + pad, Math.max(scale, 1), true);
+    canvas.toBlob((blob) => {
+      if (!blob) { toast('This graph is too large to export.'); return; }
+      downloadBlob(blob, 'json-graph.png');
+      toast('Graph downloaded');
+    }, 'image/png');
+  }
+
+  function openSchema() {
+    if (!doc) return;
+    $('#schema-text').textContent = JSON.stringify(J.inferSchema(doc), null, 2);
+    $('#dlg-schema').showModal();
+  }
+
+  function openStats() {
+    if (!doc) return;
+    const s = doc.stats;
+    const entries = [
+      ['Nodes', s.nodes], ['Max depth', s.maxDepth], ['Objects', s.object], ['Arrays', s.array],
+      ['Strings', s.string], ['Numbers', s.number], ['Booleans', s.boolean], ['Nulls', s.null],
+      ['Duplicate keys', s.duplicates], ['Size', formatBytes(new Blob([el.input.value]).size)],
+    ];
+    const list = $('#stats-list');
+    list.textContent = '';
+    for (const [label, value] of entries) {
+      const row = document.createElement('div');
+      const dt = document.createElement('dt');
+      const dd = document.createElement('dd');
+      dt.textContent = label;
+      dd.textContent = typeof value === 'number' ? value.toLocaleString('en-US') : value;
+      row.append(dt, dd);
+      list.appendChild(row);
+    }
+    $('#dlg-stats').showModal();
+  }
+
+  const effectiveTheme = () => document.documentElement.dataset.theme
+    || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+
+  function syncTheme() {
+    readTokens();
+    const dark = effectiveTheme() === 'dark';
+    $('#theme-icon').setAttribute('href', dark ? '#i-sun' : '#i-moon');
+    const label = dark ? 'Switch to light theme' : 'Switch to dark theme';
+    $('#btn-theme').title = label;
+    $('#btn-theme').setAttribute('aria-label', label);
+    scheduleGraph();
+  }
+
+  let openMenu = null;
+
+  function closeMenu(refocus) {
+    if (!openMenu) return;
+    openMenu.menu.hidden = true;
+    openMenu.button.setAttribute('aria-expanded', 'false');
+    if (refocus) openMenu.button.focus();
+    openMenu = null;
+  }
+
+  for (const [buttonId, menuId] of [['btn-import', 'menu-import'], ['btn-shortcuts', 'menu-shortcuts']]) {
+    const button = $(`#${buttonId}`);
+    const menu = $(`#${menuId}`);
+    button.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const wasOpen = openMenu && openMenu.menu === menu;
+      closeMenu(false);
+      if (wasOpen) return;
+      menu.hidden = false;
+      button.setAttribute('aria-expanded', 'true');
+      openMenu = { button, menu };
+      const first = menu.querySelector('button');
+      if (first) first.focus();
+    });
+    menu.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (e.target.closest('button')) closeMenu(false);
+    });
+    menu.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      const items = [...menu.querySelectorAll('button')];
+      if (!items.length) return;
+      e.preventDefault();
+      const at = items.indexOf(document.activeElement);
+      items[(at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length].focus();
+    });
+  }
+  document.addEventListener('click', () => closeMenu(false));
+
+  for (const dialog of document.querySelectorAll('dialog')) {
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog || e.target.closest('[data-close]')) dialog.close();
+    });
+    dialog.addEventListener('close', () => document.body.appendChild(el.toast));
+  }
+
+  $('#mode-tree').addEventListener('click', () => setMode('tree'));
+  $('#mode-graph').addEventListener('click', () => setMode('graph'));
+  $('#btn-schema').addEventListener('click', openSchema);
+  $('#btn-stats').addEventListener('click', openStats);
+  $('#btn-schema-copy').addEventListener('click', () => copy($('#schema-text').textContent, 'Schema'));
+  $('#btn-schema-download').addEventListener('click', () => {
+    downloadBlob(new Blob([$('#schema-text').textContent], { type: 'application/schema+json' }), 'schema.json');
+    toast('Schema downloaded');
+  });
+  $('#btn-download').addEventListener('click', () => {
+    if (!doc) return;
+    if (mode === 'graph') { downloadGraph(); return; }
+    downloadBlob(new Blob([J.toJSON(doc.root, 2) + '\n'], { type: 'application/json' }), 'data.json');
+    toast('JSON downloaded');
+  });
+  $('#btn-zoom-in').addEventListener('click', () => zoomCenter(1.25));
+  $('#btn-zoom-out').addEventListener('click', () => zoomCenter(0.8));
+  $('#btn-fit').addEventListener('click', fitGraph);
+  function setPanelHidden(wide) {
+    el.main.classList.toggle('wide', wide);
+    const label = wide ? 'Show JSON panel' : 'Hide JSON panel';
+    $('#btn-panel').setAttribute('aria-pressed', String(wide));
+    $('#btn-panel').setAttribute('aria-label', label);
+    $('#btn-panel').title = label;
+    gNeedsFit = true;
+    requestAnimationFrame(paint);
+  }
+  $('#btn-panel').addEventListener('click', () => setPanelHidden(!el.main.classList.contains('wide')));
+  $('#btn-theme').addEventListener('click', () => {
+    const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem(THEME_KEY, next); } catch (_) { /* Optional convenience. */ }
+    syncTheme();
+  });
+  matchMedia('(prefers-color-scheme: light)').addEventListener('change', syncTheme);
+
   /* ---------- clipboard ---------- */
 
   async function copy(text, label) {
@@ -834,14 +1660,19 @@
     setOpen(node, !expanded.has(node.id));
   });
 
-  el.tree.addEventListener('keydown', (e) => {
-    if (!doc || !rows.length || e.ctrlKey || e.metaKey || e.altKey) return;
-    let pos = rowIndex(selected);
+  function onNavKey(e) {
+    if (!doc || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (mode === 'graph' && gDirty) buildCurrentGraph();
+    const list = mode === 'graph' ? (g ? g.visible : []) : rows;
+    if (!list.length) return;
+    let pos = indexIn(list, selected);
     if (pos < 0) pos = 0;
-    const n = rows[pos];
+    const n = list[pos];
     const hasKids = !!(n.children && n.children.length);
-    const isOpen = hasKids && expanded.has(n.id);
-    const page = Math.max(1, Math.floor(el.tree.clientHeight / ROW_H) - 1);
+    const closable = mode === 'graph' ? isGraphBranch(n) : hasKids;
+    const isOpen = hasKids && (mode === 'graph' ? !closable || !gClosed.has(n.id) : expanded.has(n.id));
+    const setNodeOpen = (open) => (mode === 'graph' ? graphSetOpen(n, open) : setOpen(n, open));
+    const page = mode === 'graph' ? 10 : Math.max(1, Math.floor(el.tree.clientHeight / ROW_H) - 1);
     let next = null;
     switch (e.key) {
       case 'ArrowDown': next = pos + 1; break;
@@ -849,25 +1680,27 @@
       case 'PageDown': next = pos + page; break;
       case 'PageUp': next = pos - page; break;
       case 'Home': next = 0; break;
-      case 'End': next = rows.length - 1; break;
+      case 'End': next = list.length - 1; break;
       case 'ArrowRight':
-        if (hasKids && !isOpen) setOpen(n, true);
+        if (closable && !isOpen) setNodeOpen(true);
         else if (hasKids) next = pos + 1;
         break;
       case 'ArrowLeft':
-        if (isOpen) setOpen(n, false);
-        else if (n.parent) next = rowIndex(n.parent.id);
+        if (closable && isOpen) setNodeOpen(false);
+        else if (n.parent) next = indexIn(list, n.parent.id);
         break;
       case 'Enter':
       case ' ':
-        if (hasKids) setOpen(n, !isOpen);
+        if (closable) setNodeOpen(!isOpen);
         break;
       default:
         return;
     }
     e.preventDefault();
-    if (next !== null) select(rows[Math.max(0, Math.min(next, rows.length - 1))].id);
-  });
+    if (next !== null) select(list[Math.max(0, Math.min(next, list.length - 1))].id);
+  }
+  el.tree.addEventListener('keydown', onNavKey);
+  el.graph.addEventListener('keydown', onNavKey);
 
   el.search.addEventListener('input', () => {
     clearTimeout(searchTimer);
@@ -891,7 +1724,7 @@
       el.search.value = '';
       query = '';
       runSearch(false);
-      el.tree.focus();
+      focusView();
     }
   });
   $('#btn-next').addEventListener('click', () => step(1));
@@ -903,14 +1736,24 @@
     runSearch(true);
   });
 
-  $('#btn-expand').addEventListener('click', () => { expanded = J.expandToDepth(doc); refreshRows(); });
+  $('#btn-expand').addEventListener('click', () => {
+    if (mode === 'graph') { setGraphLevel(Infinity); return; }
+    expanded = J.expandToDepth(doc);
+    refreshRows();
+  });
   $('#btn-collapse').addEventListener('click', () => {
+    if (mode === 'graph') { setGraphLevel(1); return; }
     expanded = doc.root.children && doc.root.children.length ? new Set([doc.root.id]) : new Set();
     el.tree.scrollTop = 0;
     refreshRows();
   });
   el.level.addEventListener('change', () => {
     if (!el.level.value) return;
+    if (mode === 'graph') {
+      setGraphLevel(Number(el.level.value));
+      el.level.value = '';
+      return;
+    }
     expanded = J.expandToDepth(doc, Number(el.level.value));
     el.level.value = '';
     refreshRows();
@@ -940,13 +1783,23 @@
   $('#tab-tree').addEventListener('click', () => setView('tree'));
 
   document.addEventListener('keydown', (e) => {
-    if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.target.matches('input, textarea, select')) return;
-    if (el.search.disabled) return;
-    e.preventDefault();
-    setView('tree');
-    el.search.focus();
-    el.search.select();
+    if (e.key === 'Escape' && openMenu) { e.preventDefault(); closeMenu(true); return; }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target.matches('input, textarea, select') || document.querySelector('dialog[open]')) return;
+    if (e.key === '/') {
+      if (el.search.disabled) return;
+      e.preventDefault();
+      setView('tree');
+      el.search.focus();
+      el.search.select();
+    } else if (e.key === 'g' || e.key === 'G') {
+      e.preventDefault();
+      setMode(mode === 'graph' ? 'tree' : 'graph');
+    } else if (mode === 'graph' && doc) {
+      if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomCenter(1.25); }
+      else if (e.key === '-') { e.preventDefault(); zoomCenter(0.8); }
+      else if (e.key === '0') { e.preventDefault(); fitGraph(); }
+    }
   });
 
   const hasFiles = (e) => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
@@ -963,11 +1816,20 @@
     openFile(e.dataTransfer.files[0]);
   });
 
-  if ('ResizeObserver' in window) new ResizeObserver(() => paint()).observe(el.tree);
-  else window.addEventListener('resize', paint);
+  if ('ResizeObserver' in window) {
+    const observer = new ResizeObserver(() => paint());
+    observer.observe(el.tree);
+    observer.observe(el.graphWrap);
+  } else {
+    window.addEventListener('resize', paint);
+  }
 
+  syncTheme();
   const saved = storage.get();
   setInput(saved !== null ? saved : SAMPLE);
+  let savedMode = null;
+  try { savedMode = localStorage.getItem(MODE_KEY); } catch (_) { /* Optional convenience. */ }
+  if (savedMode === 'graph') setMode('graph');
 })();
 </script>
 </body>

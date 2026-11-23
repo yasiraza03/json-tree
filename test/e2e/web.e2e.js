@@ -160,6 +160,173 @@ async function checkDesktop(browser, url, colorScheme) {
   await context.close();
 }
 
+async function checkGraphAndHeader(browser, url) {
+  const context = await browser.newContext({ viewport: { width: 1470, height: 900 }, colorScheme: 'dark', acceptDownloads: true, permissions: ['clipboard-read', 'clipboard-write'] });
+  const page = await context.newPage();
+  const problems = [];
+  const external = [];
+  page.on('pageerror', (e) => problems.push(e.message));
+  page.on('console', (m) => { if (m.type() === 'error') problems.push(m.text()); });
+  page.on('request', (r) => { if (!/^(data:|blob:)/.test(r.url()) && !r.url().startsWith(url)) external.push(r.url()); });
+  await page.goto(url);
+  await page.waitForSelector('.row');
+
+  const cards = () => page.$eval('#graph', (c) => Number(c.dataset.cards));
+  const point = (ptr, part) => page.evaluate(([p, k]) => window.__jsonTreeGraph.point(p, k), [ptr, part]);
+  const clickNode = async (ptr, part) => {
+    const at = await point(ptr, part);
+    await page.mouse.click(at.x, at.y);
+  };
+  const path = () => page.textContent('#ins-path');
+  const waitPath = (p) => page.waitForFunction((v) => document.querySelector('#ins-path').textContent === v, p);
+  const camera = () => page.evaluate(() => window.__jsonTreeGraph.camera());
+
+  // Header actions are present, and zoom waits for the graph.
+  for (const id of ['btn-import', 'btn-schema', 'btn-stats', 'btn-download', 'btn-zoom-in', 'btn-zoom-out', 'btn-fit', 'btn-theme', 'btn-shortcuts']) {
+    assert.ok(await page.isVisible(`#${id}`), `${id} is visible`);
+  }
+  assert.ok(await page.isDisabled('#btn-zoom-in'), 'zoom is off in tree view');
+
+  // Graph renders real pixels.
+  await page.click('#mode-graph');
+  await page.waitForFunction(() => Number(document.querySelector('#graph').dataset.cards) > 8);
+  assert.ok(!(await page.isVisible('#tree')));
+  assert.ok(!(await page.isDisabled('#btn-zoom-in')));
+  await page.waitForTimeout(80);
+  const initialCamera = await camera();
+  await page.click('#btn-fit');
+  assert.deepStrictEqual(await camera(), initialCamera, 'the graph fits when first opened');
+  const colors = await page.$eval('#graph', (c) => {
+    const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    const seen = new Set();
+    for (let i = 0; i < data.length; i += 64) seen.add(`${data[i]},${data[i + 1]},${data[i + 2]}`);
+    return seen.size;
+  });
+  assert.ok(colors > 4, `graph drew content (${colors} colors)`);
+
+  // Selecting a row updates the shared inspector.
+  await clickNode('/order/status');
+  await waitPath('$.order.status');
+  await clickNode('/order/items');
+  await waitPath('$.order.items');
+  await page.click('#btn-panel');
+  assert.ok(!(await page.isVisible('#input')));
+  await page.click('#btn-show');
+  await page.waitForFunction(() => document.activeElement.id === 'input');
+  assert.ok(await page.isVisible('#input'), 'Show in input reopens the editor');
+
+  // Branches collapse and reopen.
+  const before = await cards();
+  await clickNode('/order/items', 'toggle');
+  await page.waitForFunction((n) => Number(document.querySelector('#graph').dataset.cards) < n, before);
+  await clickNode('/order/items', 'toggle');
+  await page.waitForFunction((n) => Number(document.querySelector('#graph').dataset.cards) === n, before);
+
+  // Search reveals a node in a collapsed branch.
+  await page.click('#btn-collapse');
+  await page.waitForFunction((n) => Number(document.querySelector('#graph').dataset.cards) < n, before);
+  await page.fill('#search', 'springfield');
+  await waitPath('$.order.customer.address.city');
+  await page.press('#search', 'Escape');
+
+  // Keyboard navigation works on the canvas.
+  await page.focus('#graph');
+  await page.keyboard.press('Home');
+  await waitPath('$');
+  await page.keyboard.press('ArrowDown');
+  await waitPath('$.order');
+
+  // Pan and zoom.
+  await page.click('#btn-expand');
+  await page.waitForFunction((n) => Number(document.querySelector('#graph').dataset.cards) === n, before);
+  await page.click('#btn-fit');
+  await page.waitForTimeout(40);
+  const k0 = (await camera()).k;
+  await page.click('#btn-zoom-in');
+  assert.ok((await camera()).k > k0, 'zoom in');
+  await page.click('#btn-zoom-out');
+  assert.ok(Math.abs((await camera()).k - k0) < 0.001, 'zoom out');
+  const box = await page.locator('#graph').boundingBox();
+  const c0 = await camera();
+  await page.mouse.move(box.x + 12, box.y + 12);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 72, box.y + 52, { steps: 4 });
+  await page.mouse.up();
+  const c1 = await camera();
+  assert.ok(Math.abs(c1.x - c0.x - 60) < 5 && Math.abs(c1.y - c0.y - 40) < 5, 'drag pans');
+
+  // Downloads.
+  let [file] = await Promise.all([page.waitForEvent('download'), page.click('#btn-download')]);
+  assert.strictEqual(file.suggestedFilename(), 'json-graph.png');
+  const png = fs.readFileSync(await file.path());
+  assert.strictEqual(png.subarray(1, 4).toString(), 'PNG');
+
+  // Schema and stats dialogs.
+  await page.click('#btn-schema');
+  await page.waitForSelector('#dlg-schema[open]');
+  const schema = JSON.parse(await page.textContent('#schema-text'));
+  assert.strictEqual(schema.properties.order.properties.total.type, 'number');
+  await page.click('#btn-schema-copy');
+  await page.waitForFunction(() => document.querySelector('#toast').textContent === 'Schema copied');
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('#dlg-schema:not([open])', { state: 'attached' });
+  await page.click('#btn-stats');
+  assert.match(await page.textContent('#stats-list'), /Nodes43/);
+  await page.click('#dlg-stats [data-close]');
+
+  // Import and shortcuts menus.
+  await page.click('#btn-shortcuts');
+  assert.ok(await page.isVisible('#menu-shortcuts'));
+  await page.keyboard.press('Escape');
+  assert.ok(!(await page.isVisible('#menu-shortcuts')));
+  await page.click('#btn-import');
+  assert.ok(await page.isVisible('#btn-sample'));
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.click('#btn-open')]);
+  await chooser.setFiles({ name: 'upload.json', mimeType: 'application/json', buffer: Buffer.from('{"uploaded":[1,2]}') });
+  await waitNodes(page, 4);
+  assert.strictEqual(await page.inputValue('#input'), '{"uploaded":[1,2]}');
+
+  // Theme switch persists.
+  await page.click('#btn-theme');
+  assert.strictEqual(await page.evaluate(() => document.documentElement.dataset.theme), 'light');
+  await page.reload();
+  await page.waitForFunction(() => document.querySelector('#status').dataset.nodes === '4');
+  assert.strictEqual(await page.evaluate(() => document.documentElement.dataset.theme), 'light');
+  assert.strictEqual(await page.getAttribute('#mode-graph', 'aria-pressed'), 'true', 'graph mode is remembered');
+  await page.click('#btn-theme');
+
+  // Paging reaches the far end of long arrays.
+  await setInput(page, JSON.stringify({ items: Array.from({ length: 120 }, (_, i) => `v${i}`) }), 122);
+  await clickNode('/items', 'pager');
+  await page.fill('#search', 'v75');
+  await waitPath('$.items[75]');
+  await page.press('#search', 'Escape');
+
+  // Large documents stay capped and responsive.
+  const large = JSON.stringify(Array.from({ length: 50000 }, (_, i) => ({ id: i, tags: ['a', 'b'] })));
+  await page.evaluate((text) => {
+    const input = document.querySelector('#input');
+    input.value = text;
+    input.dispatchEvent(new Event('input'));
+  }, large);
+  await waitNodes(page, 250001);
+  await page.waitForFunction(() => Number(document.querySelector('#graph').dataset.cards) > 0);
+  assert.ok((await cards()) <= 4100);
+  await page.fill('#search', '49999');
+  await waitPath('$[49999].id');
+  await page.press('#search', 'Escape');
+
+  // Selection carries back to the tree.
+  await page.click('#mode-tree');
+  assert.ok(await page.isVisible('#tree'));
+  assert.strictEqual(await path(), '$[49999].id');
+  assert.ok((await rowTexts(page)).some((t) => t.includes('49999')));
+
+  assert.deepStrictEqual(problems, [], 'no console or page errors');
+  assert.deepStrictEqual(external, [], 'no external requests');
+  await context.close();
+}
+
 async function checkMobile(browser, url) {
   const context = await browser.newContext({ viewport: { width: 360, height: 700 }, hasTouch: true, isMobile: true });
   const page = await context.newPage();
@@ -176,6 +343,15 @@ async function checkMobile(browser, url) {
   await page.tap('#tab-tree');
   await page.waitForSelector('.row');
   assert.ok((await rowTexts(page)).length > 3, 'rows repaint after switching tabs');
+  await page.tap('#tab-input');
+  await page.tap('#mode-graph');
+  await page.waitForFunction(() => Number(document.querySelector('#graph').dataset.cards) > 8);
+  assert.ok(await page.isVisible('#graph'), 'graph shows on a phone');
+  assert.ok(await noOverflow(), 'graph view fits a phone');
+  await page.tap('#btn-shortcuts');
+  const menu = await page.locator('#menu-shortcuts').boundingBox();
+  assert.ok(menu.x >= 0 && menu.x + menu.width <= 360, 'menu fits a phone');
+  await page.tap('#btn-shortcuts');
   assert.deepStrictEqual(problems, []);
   await context.close();
 }
@@ -186,6 +362,7 @@ async function checkMobile(browser, url) {
   const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {});
   try {
     for (const scheme of ['dark', 'light']) await checkDesktop(browser, url, scheme);
+    await checkGraphAndHeader(browser, url);
     await checkMobile(browser, url);
     console.log('e2e: all browser checks passed');
   } finally {
